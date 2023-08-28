@@ -5,6 +5,7 @@
 
 // BOOST
 #include <boost/progress.hpp>
+#include <boost/optional.hpp>
 
 // EPG
 #include <epg/Context.h>
@@ -54,6 +55,20 @@ namespace app
         ///
         ///
         ///
+        void CFeatConnectionOp::computeCpCl(
+            std::string edgeTable,
+            std::string cpTable,
+            std::string clTable,
+            std::string countryCode,
+            bool verbose)
+        {
+            CFeatConnectionOp CFeatConnectionOp(edgeTable, cpTable, clTable, countryCode, verbose);
+            CFeatConnectionOp._computeCpCl();
+        }
+
+        ///
+        ///
+        ///
         CFeatConnectionOp::CFeatConnectionOp(
             std::string edgeTable,
             std::string cpTable,
@@ -74,7 +89,7 @@ namespace app
             _shapeLogger->closeShape("resulting_edges");
             _shapeLogger->closeShape("projected_cp");
             _shapeLogger->closeShape("multiple_result");
-            _shapeLogger->closeShape("displacements");
+            _shapeLogger->closeShape("cp_displacements");
             _shapeLogger->closeShape("created_edges");
             _shapeLogger->closeShape("cl_displacements");
             _shapeLogger->closeShape("cl_created_features");
@@ -132,7 +147,7 @@ namespace app
             _shapeLogger->addShape("resulting_edges", epg::log::ShapeLogger::LINESTRING);
             _shapeLogger->addShape("projected_cp", epg::log::ShapeLogger::POINT);
             _shapeLogger->addShape("multiple_result", epg::log::ShapeLogger::LINESTRING);
-            _shapeLogger->addShape("displacements", epg::log::ShapeLogger::LINESTRING);
+            _shapeLogger->addShape("cp_displacements", epg::log::ShapeLogger::LINESTRING);
             _shapeLogger->addShape("created_edges", epg::log::ShapeLogger::LINESTRING);
             _shapeLogger->addShape("cl_displacements", epg::log::ShapeLogger::LINESTRING);
             _shapeLogger->addShape("cl_created_features", epg::log::ShapeLogger::LINESTRING);
@@ -145,7 +160,7 @@ namespace app
         ///
         ///
         ///
-        void CFeatConnectionOp::_computeCl()
+        void CFeatConnectionOp::_computeClDisplacements(std::map<ign::geometry::Point, ign::math::Vec2d> & mDisplacements) const
         {
             epg::Context *context = epg::ContextS::getInstance();
 
@@ -164,7 +179,6 @@ namespace app
 
             ign::feature::FeatureFilter filterCl(countryCodeName + " LIKE '%" + _countryCode + "%'");
             std::set<std::string> sEdge2Delete;
-            std::map<ign::geometry::Point, ign::math::Vec2d> mDisplacements;
 
             // patience
             int numFeatures = epg::sql::tools::numFeatures(*_fsCl, filterCl);
@@ -178,8 +192,11 @@ namespace app
                 std::string edgeLink = fCl.getAttribute(edgeLinkName).toString();
                 std::string countryCode = fCl.getAttribute(countryCodeName).toString();
 
-                std::string idDebug = fCl.getId();
-                if ( idDebug != "CONNECTINGLINE179" && idDebug != "CONNECTINGLINE178" ) continue;
+                if (_verbose) _logger->log(epg::log::DEBUG, fCl.getId());
+
+                // std::string idDebug = fCl.getId();
+                // // if ( idDebug != "CONNECTINGLINE179" && idDebug != "CONNECTINGLINE178" ) continue;
+                // if ( idDebug != "CONNECTINGLINE177" ) continue;
 
                 std::pair<bool, std::string> foundEdgeLink = _getCountryEdgeLink(edgeLink, countryCode, _countryCode);
                 if (!foundEdgeLink.first)
@@ -195,11 +212,14 @@ namespace app
                     continue;
                 }
 
+                // if (foundEdge.second ==  "50ab969e-2186-4c19-a0bb-ddc2d8ada2b8" || foundEdge.second ==  "38cb0d6f-50cf-4ce3-ae74-9d6f8a5915d4") {
+                //     bool test =true;
+                // }
+
                 ign::feature::Feature fEdge;
                 _fsEdge->getFeatureById(foundEdge.second, fEdge);
 
-                if (_verbose)
-                    _logger->log(epg::log::DEBUG, foundEdge.second);
+                if (_verbose) _logger->log(epg::log::DEBUG, "  "+foundEdge.second);
 
                 ign::geometry::LineString const &edgeGeom = fEdge.getGeometry().asLineString();
 
@@ -218,64 +238,62 @@ namespace app
                 }
 
                 ign::geometry::MultiPoint mpCuttingPoints;
-                ign::geometry::Point endingPoint;
+                boost::optional< ign::geometry::Point > endingPoint;
                 if (minId < 2)
                 {
+                    ign::geometry::Point startPoint;
                     if (vDist[minId] <= snapDistance)
                     {
-                        ign::geometry::Point const& startPoint = (minId == 0) ? edgeGeom.startPoint() : edgeGeom.endPoint();
-                        mDisplacements.insert(std::make_pair(startPoint, clGeom.startPoint().toVec2d() - startPoint.toVec2d()));
+                        startPoint = (minId == 0) ? edgeGeom.startPoint() : edgeGeom.endPoint();
                         endingPoint = startPoint;
                     }
                     else
                     {
-                        ign::geometry::Point projectedPoint;
-                        epg::tools::geometry::projectZ(edgeGeom, clGeom.startPoint(), projectedPoint);
-                        mpCuttingPoints.addGeometry(projectedPoint);
+                        epg::tools::geometry::projectZ(edgeGeom, clGeom.startPoint(), startPoint);
+                        mpCuttingPoints.addGeometry(startPoint);
                     }
+                    mDisplacements.insert(std::make_pair(startPoint, clGeom.startPoint().toVec2d() - startPoint.toVec2d()));
 
                     size_t minId2 = vDist[2] < vDist[3] ? 2 : 3;
                     if (vDist[minId2] <= snapDistance)
                     {
-                        ign::geometry::Point const& startPoint = (minId2 == 2) ? edgeGeom.startPoint() : edgeGeom.endPoint();
-                        mDisplacements.insert(std::make_pair(startPoint, clGeom.endPoint().toVec2d() - startPoint.toVec2d()));
+                        startPoint = (minId2 == 2) ? edgeGeom.startPoint() : edgeGeom.endPoint();
                         endingPoint = startPoint;
                     }
                     else
                     {
-                        ign::geometry::Point projectedPoint;
-                        epg::tools::geometry::projectZ(edgeGeom, clGeom.endPoint(), projectedPoint);
-                        mpCuttingPoints.addGeometry(projectedPoint);
+                        epg::tools::geometry::projectZ(edgeGeom, clGeom.endPoint(), startPoint);
+                        mpCuttingPoints.addGeometry(startPoint);
                     }
+                    mDisplacements.insert(std::make_pair(startPoint, clGeom.endPoint().toVec2d() - startPoint.toVec2d()));
                 }
                 else
                 {
+                    ign::geometry::Point startPoint;
                     if (vDist[minId] <= snapDistance)
                     {
-                        ign::geometry::Point const& startPoint = (minId == 2) ? edgeGeom.startPoint() : edgeGeom.endPoint();
-                        mDisplacements.insert(std::make_pair(startPoint, clGeom.endPoint().toVec2d() - startPoint.toVec2d()));
+                        startPoint = (minId == 2) ? edgeGeom.startPoint() : edgeGeom.endPoint();
                         endingPoint = startPoint;
                     }
                     else
                     {
-                        ign::geometry::Point projectedPoint;
-                        epg::tools::geometry::projectZ(edgeGeom, clGeom.endPoint(), projectedPoint);
-                        mpCuttingPoints.addGeometry(projectedPoint);
+                        epg::tools::geometry::projectZ(edgeGeom, clGeom.endPoint(), startPoint);
+                        mpCuttingPoints.addGeometry(startPoint);
                     }
+                    mDisplacements.insert(std::make_pair(startPoint, clGeom.endPoint().toVec2d() - startPoint.toVec2d()));
 
                     size_t minId2 = vDist[0] < vDist[1] ? 0 : 1;
                     if (vDist[minId2] <= snapDistance)
                     {
-                        ign::geometry::Point const& startPoint = (minId2 == 0) ? edgeGeom.startPoint() : edgeGeom.endPoint();
-                        mDisplacements.insert(std::make_pair(startPoint, clGeom.startPoint().toVec2d() - startPoint.toVec2d()));
+                        startPoint = (minId2 == 0) ? edgeGeom.startPoint() : edgeGeom.endPoint();
                         endingPoint = startPoint;
                     }
                     else
                     {
-                        ign::geometry::Point projectedPoint;
-                        epg::tools::geometry::projectZ(edgeGeom, clGeom.startPoint(), projectedPoint);
-                        mpCuttingPoints.addGeometry(projectedPoint);
+                        epg::tools::geometry::projectZ(edgeGeom, clGeom.startPoint(), startPoint);
+                        mpCuttingPoints.addGeometry(startPoint);
                     }
+                    mDisplacements.insert(std::make_pair(startPoint, clGeom.startPoint().toVec2d() - startPoint.toVec2d()));
                 }
 
                 std::vector< ign::geometry::LineString > vNewGeom;
@@ -286,11 +304,9 @@ namespace app
 
                     vNewGeom = lsSplitter.getSubLineStringsZ();
 
-                    mpCuttingPoints.addGeometry(endingPoint);
+                    if ( endingPoint ) mpCuttingPoints.addGeometry(endingPoint.get());
                     for (int i = vNewGeom.size()-1 ; i >= 0 ; --i) {
-                        double distance0 = vNewGeom[i].startPoint().distance(mpCuttingPoints);
-                        double distance1 = vNewGeom[i].endPoint().distance(mpCuttingPoints);
-                        if(vNewGeom[i].startPoint().distance(mpCuttingPoints) < 1e-5 &&  vNewGeom[i].endPoint().distance(mpCuttingPoints) < 1e-5) {
+                        if(vNewGeom[i].startPoint().distance(mpCuttingPoints) < 1e-5 && vNewGeom[i].endPoint().distance(mpCuttingPoints) < 1e-5) {
                             vNewGeom.erase(vNewGeom.begin()+i);
                         }
                     }
@@ -308,7 +324,7 @@ namespace app
                     for (size_t i = 0 ; i < vNewGeom.size() ; ++i) {
                         fEdge.setId(oldId+"_"+ign::data::Integer( ++count ).toString());
                         fEdge.setGeometry(vNewGeom[i]);
-                        // _fsEdge->createFeature(fEdge);
+                        _fsEdge->createFeature(fEdge);
 
                         vNewGeom[i].clearZ();
                         fEdge.setGeometry(vNewGeom[i]);
@@ -320,8 +336,6 @@ namespace app
 
             std::set< std::string >::const_iterator sit;
             for( sit = sEdge2Delete.begin() ; sit != sEdge2Delete.end() ; ++sit ) {
-                // _fsEdge->deleteFeature(*sit);
-
                 ign::feature::Feature dFeat;
                 _fsEdge->getFeatureById(*sit, dFeat);
 
@@ -329,6 +343,8 @@ namespace app
                 tempLs.clearZ();
                 dFeat.setGeometry(tempLs);
                 _shapeLogger->writeFeature("cl_deleted_features", dFeat);
+
+                _fsEdge->deleteFeature(*sit);
             }
 
             std::map<ign::geometry::Point, ign::math::Vec2d>::const_iterator mit;
@@ -340,42 +356,33 @@ namespace app
                 feat.setGeometry(ign::geometry::LineString(p, ign::geometry::Point(mit->first.x() + mit->second.x(), mit->first.y() + mit->second.y())));
                 _shapeLogger->writeFeature("cl_displacements", feat);
             }
-        };
-
-        ///
-        ///
-        ///
-        std::pair<bool, std::string> CFeatConnectionOp::_getCountryEdgeLink(
-            std::string edgeLinks,
-            std::string countryCodes,
-            std::string country) const
-        {
-            std::vector<std::string> vEdgesLink;
-            ign::tools::StringManip::Split(edgeLinks, "#", vEdgesLink);
-
-            std::vector<std::string> vCountryCode;
-            ign::tools::StringManip::Split(countryCodes, "#", vCountryCode);
-
-            int index = -1;
-            for (size_t i = 0; i < vCountryCode.size(); ++i)
-            {
-                if (vCountryCode[i] == country)
-                {
-                    index = i;
-                    break;
-                }
-            }
-
-            if (index < 0 || index > vEdgesLink.size() - 1)
-                return std::make_pair(false, "");
-
-            return std::make_pair(true, vEdgesLink[index]);
         }
 
         ///
         ///
         ///
-        void CFeatConnectionOp::_computeCp()
+        void CFeatConnectionOp::_computeCl()
+        {
+            std::map<ign::geometry::Point, ign::math::Vec2d> mDisplacements;
+            _computeClDisplacements(mDisplacements);
+
+            // on charge le graph
+            GraphType graph;
+            _loadEdgeGraph(graph);
+
+            // On calcul les déplacements
+            std::set<std::string> sCollapsedEdges;
+            std::vector<edge_descriptor> vDeformedEdges;
+            _applyEdgeDisplacement(graph, mDisplacements, vDeformedEdges, sCollapsedEdges);
+
+            // on enregistre les modifications
+            _persistEdgeDisplacement(graph, vDeformedEdges);
+        };
+
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_computeCpDisplacements(std::map<ign::geometry::Point, ign::math::Vec2d> & mDisplacements) const 
         {
             epg::Context *context = epg::ContextS::getInstance();
 
@@ -391,7 +398,6 @@ namespace app
             std::string const landCoverTypeName = themeParameters->getValue(LAND_COVER_TYPE).toString();
             std::string const landAreaValue = themeParameters->getValue(TYPE_LAND_AREA).toString();
 
-            // NO DEBUG
             ign::geometry::MultiPolygon mpLandmask;
             ign::feature::FeatureIteratorPtr itLandmask = _fsLandmask->getFeatures(ign::feature::FeatureFilter(landCoverTypeName + " = '" + landAreaValue + "' AND " + countryCodeName + " = '" + _countryCode + "'"));
             while (itLandmask->hasNext())
@@ -406,7 +412,6 @@ namespace app
 
             ign::feature::FeatureFilter filterCp(countryCodeName + " LIKE '%" + _countryCode + "%'");
             std::set<std::string> sEdge2Delete;
-            std::map<ign::geometry::Point, ign::math::Vec2d> mDisplacements;
 
             // patience
             int numFeatures = epg::sql::tools::numFeatures(*_fsCp, filterCp);
@@ -547,46 +552,52 @@ namespace app
             {
                 ign::feature::Feature feat;
                 feat.setGeometry(ign::geometry::LineString(mit->first, ign::geometry::Point(mit->first.x() + mit->second.x(), mit->first.y() + mit->second.y())));
-                _shapeLogger->writeFeature("displacements", feat);
+                _shapeLogger->writeFeature("cp_displacements", feat);
             }
+
+        }
+
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_computeCp()
+        {
+            std::map<ign::geometry::Point, ign::math::Vec2d> mDisplacements;
+            _computeCpDisplacements(mDisplacements);
 
             // on charge le graph
             GraphType graph;
-            ign::geometry::graph::builder::SimpleGraphBuilder<GraphType> graphBuilder(graph, 1e-5);
+            _loadEdgeGraph(graph);
 
-            ign::feature::FeatureFilter filterEdge(countryCodeName + " LIKE '%" + _countryCode + "%'");
-            // ign::feature::FeatureFilter filterEdge(countryCodeName + " LIKE '%" + _countryCode + "%' AND inspireid='02d8e754-05bc-44bf-96c1-3bcc75ff740e'");
-            ign::feature::FeatureIteratorPtr itEdge = _fsEdge->getFeatures(filterEdge);
-
-            // patience
-            int numFeatures2 = epg::sql::tools::numFeatures(*_fsEdge, filterEdge);
-            boost::progress_display display2(numFeatures2, std::cout, "[ graph loading  % complete ]\n");
-
-            while (itEdge->hasNext())
-            {
-                ign::feature::Feature const &fEdge = itEdge->next();
-                ign::geometry::LineString const &edgeGeom = fEdge.getGeometry().asLineString();
-
-                graphBuilder.addEdge(edgeGeom, fEdge.getId());
-
-                ++display2;
-            }
-            // NO DEBUG
-
-            // DEBUG
-            // std::map< ign::geometry::Point, ign::math::Vec2d > mDisplacements;
-
-            // ign::geometry::Point target(3860339.203, 3062299.475);
-            // ign::geometry::Point source(3860338.2, 3062299.3);
-            // mDisplacements.insert(std::make_pair(source, target.toVec2d()-source.toVec2d()));
-            // DEBUG
-
-            double influenceDist = 2;
-            // double mergingDist = 1e-5;
-            epg::calcul::matching::detail::LineStringSimpleDampedDeformer deformer;
-
+            // On calcul les déplacements
             std::set<std::string> sCollapsedEdges;
-            _applyDisplacement(graph, mDisplacements, deformer, sCollapsedEdges, influenceDist /*, mergingDist*/);
+            std::vector<edge_descriptor> vDeformedEdges;
+            _applyEdgeDisplacement(graph, mDisplacements, vDeformedEdges, sCollapsedEdges);
+
+            // on enregistre les modifications
+            _persistEdgeDisplacement(graph, vDeformedEdges);
+        }
+
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_computeCpCl()
+        {
+            std::map<ign::geometry::Point, ign::math::Vec2d> mDisplacements;
+            _computeCpDisplacements(mDisplacements);
+            _computeClDisplacements(mDisplacements);
+
+            // on charge le graph
+            GraphType graph;
+            _loadEdgeGraph(graph);
+
+            // On calcul les déplacements
+            std::set<std::string> sCollapsedEdges;
+            std::vector<edge_descriptor> vDeformedEdges;
+            _applyEdgeDisplacement(graph, mDisplacements, vDeformedEdges, sCollapsedEdges);
+
+            // on enregistre les modifications
+            _persistEdgeDisplacement(graph, vDeformedEdges);
         }
 
         ///
@@ -624,11 +635,116 @@ namespace app
         ///
         ///
         ///
+        std::pair<bool, std::string> CFeatConnectionOp::_getCountryEdgeLink(
+            std::string edgeLinks,
+            std::string countryCodes,
+            std::string country) const
+        {
+            std::vector<std::string> vEdgesLink;
+            ign::tools::StringManip::Split(edgeLinks, "#", vEdgesLink);
+
+            std::vector<std::string> vCountryCode;
+            ign::tools::StringManip::Split(countryCodes, "#", vCountryCode);
+
+            int index = -1;
+            for (size_t i = 0; i < vCountryCode.size(); ++i)
+            {
+                if (vCountryCode[i] == country)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            if (index < 0 || index > vEdgesLink.size() - 1)
+                return std::make_pair(false, "");
+
+            return std::make_pair(true, vEdgesLink[index]);
+        }
+
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_loadEdgeGraph(GraphType & graph) const {
+            epg::Context *context = epg::ContextS::getInstance();
+            epg::params::EpgParameters const &epgParams = context->getEpgParameters();
+            std::string const countryCodeName = epgParams.getValue(COUNTRY_CODE).toString();
+            
+
+            ign::geometry::graph::builder::SimpleGraphBuilder<GraphType> graphBuilder(graph, 1e-5);
+
+            ign::feature::FeatureFilter filterEdge(countryCodeName + " LIKE '%" + _countryCode + "%'");
+            // ign::feature::FeatureFilter filterEdge(countryCodeName + " LIKE '%" + _countryCode + "%' AND inspireid='02d8e754-05bc-44bf-96c1-3bcc75ff740e'");
+            ign::feature::FeatureIteratorPtr itEdge = _fsEdge->getFeatures(filterEdge);
+
+            // patience
+            int numFeatures2 = epg::sql::tools::numFeatures(*_fsEdge, filterEdge);
+            boost::progress_display display2(numFeatures2, std::cout, "[ graph loading  % complete ]\n");
+
+            while (itEdge->hasNext())
+            {
+                ign::feature::Feature const &fEdge = itEdge->next();
+                ign::geometry::LineString const &edgeGeom = fEdge.getGeometry().asLineString();
+
+                graphBuilder.addEdge(edgeGeom, fEdge.getId());
+
+                ++display2;
+            }
+        }
+
+        ///
+        ///
+        ///
+        std::pair<bool, app::calcul::CFeatConnectionOp::vertex_descriptor> CFeatConnectionOp::_getNearestVertex(
+            GraphType const &graph,
+            ign::geometry::Point const &pt,
+            double searchDistance) const
+        {
+
+            std::vector<vertex_descriptor> vVertices;
+            graph.verticesIntersectingBox(pt.getEnvelope().expandBy(searchDistance), vVertices);
+
+            vertex_descriptor v = GraphType::nullVertex();
+
+            double minDistance = std::numeric_limits<double>::max();
+            for (size_t i = 0; i < vVertices.size(); ++i)
+            {
+                double distance = pt.distance(graph.getGeometry(vVertices[i]));
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    v = vVertices[i];
+                }
+            }
+            bool found = (v != GraphType::nullVertex());
+            return std::make_pair(found, v);
+        }
+
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_applyEdgeDisplacement(
+            GraphType & graph,
+            std::map<ign::geometry::Point, ign::math::Vec2d> const & mReferences,
+            std::vector<edge_descriptor> & vDeformedEdges,
+            std::set<std::string> & sCollapsedEdges
+        ) const {
+            double influenceDist = 2;
+            // double mergingDist = 1e-5;
+            epg::calcul::matching::detail::LineStringSimpleDampedDeformer deformer;
+
+            _applyDisplacement(graph, mReferences, deformer, vDeformedEdges, sCollapsedEdges, influenceDist /*, mergingDist*/);
+        }
+
+        ///
+        ///
+        ///
         void CFeatConnectionOp::_applyDisplacement(
-            GraphType &graph,
-            std::map<ign::geometry::Point, ign::math::Vec2d> const &mReferences,
-            epg::calcul::matching::detail::LineStringDeformer const &lineStringDeformer,
-            std::set<std::string> &sCollapsedEdges,
+            GraphType & graph,
+            std::map<ign::geometry::Point, ign::math::Vec2d> const & mReferences,
+            epg::calcul::matching::detail::LineStringDeformer const & lineStringDeformer,
+            std::vector<edge_descriptor> & vDeformedEdges,
+            std::set<std::string> & sCollapsedEdges,
             double influenceDist /*,
              double mergingDist*/
         ) const
@@ -641,8 +757,6 @@ namespace app
             if (_verbose)
                 shapeLogger->addShape("applyDisplacements_edgesBeforeDeformation", epg::log::ShapeLogger::LINESTRING);
 
-            // std::string const& vertexGeomName = context->getEpgParameters().getValue( GEOM ).toString();
-            // std::string const& edgeGeomName = context->getEpgParameters().getValue( GEOM ).toString();
 
             typedef typename GraphType::vertex_descriptor vertex_descriptor;
             typedef typename GraphType::edge_descriptor edge_descriptor;
@@ -780,6 +894,7 @@ namespace app
                         shapeLogger->writeFeature("applyDisplacements_deformedEdges", feat);
                     }
 
+                    vDeformedEdges.push_back(*eit);
                     ++numDeformedEdges;
                 }
             }
@@ -794,74 +909,14 @@ namespace app
                 ign::math::Vec2d displacement = _computeDisplacement(dit->second);
                 // epg::graph::tools::translateVertex( graph, dit->first, displacement, false/*with merging*/ );
                 ign::geometry::Point oldGeom = graph.getGeometry(dit->first);
-                graph.setGeometry(dit->first, ign::geometry::Point(oldGeom.x() + displacement.x(), oldGeom.y() + displacement.y()));
+                graph.setGeometry(dit->first, ign::geometry::Point(oldGeom.x() + displacement.x(), oldGeom.y() + displacement.y(), oldGeom.z()));
             }
-
-            // on fusionne les references superposees
-            //  for( size_t i = 0 ; i < vReferences.size() ; ++i )
-            //  {
-            //      std::set< int > sCandidates;
-            //      qReferences.query( vReferences[i].second.getEnvelope().expandBy( mergingDist ), sCandidates );
-
-            //     IGN_ASSERT( !sCandidates.empty() );
-            //     if( sCandidates.size() == 1 )
-            //     {
-            //         IGN_ASSERT( *sCandidates.begin() == i );
-            //         continue;
-            //     }
-
-            //     double minDist = mergingDist;
-            //     vertex_descriptor mergedCandidate = GraphType::nullVertex();
-            //     bool found = false;
-            //     for( std::set< int >::const_iterator cit = sCandidates.begin() ; cit != sCandidates.end() ; ++cit )
-            //     {
-            //         if( *cit == i ) continue;
-
-            //         double distance = vReferences[*cit].second.distance( vReferences[i].second );
-            //         if( distance < minDist )
-            //         {
-            //             minDist = distance;
-            //             mergedCandidate = vReferences[*cit].first;
-            //             found = true;
-            //         }
-            //     }
-            //     if( found )
-            //     {
-            //         graph::tools::mergeVertices( graph, vReferences[i].first, mergedCandidate );
-            //         qReferences.remove( i, vReferences[i].second.getEnvelope() );
-            //     }
-            // }
 
             if (_verbose)
                 shapeLogger->closeShape("applyDisplacements_deformedEdges");
             if (_verbose)
                 shapeLogger->closeShape("applyDisplacements_edgesBeforeDeformation");
             _logger->log(epg::log::INFO, "nombre d arcs deformes :" + ign::data::Integer(numDeformedEdges).toString());
-        }
-
-        std::pair<bool, app::calcul::CFeatConnectionOp::vertex_descriptor> CFeatConnectionOp::_getNearestVertex(
-            GraphType const &graph,
-            ign::geometry::Point const &pt,
-            double searchDistance) const
-        {
-
-            std::vector<vertex_descriptor> vVertices;
-            graph.verticesIntersectingBox(pt.getEnvelope().expandBy(searchDistance), vVertices);
-
-            vertex_descriptor v = GraphType::nullVertex();
-
-            double minDistance = std::numeric_limits<double>::max();
-            for (size_t i = 0; i < vVertices.size(); ++i)
-            {
-                double distance = pt.distance(graph.getGeometry(vVertices[i]));
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                    v = vVertices[i];
-                }
-            }
-            bool found = (v != GraphType::nullVertex());
-            return std::make_pair(found, v);
         }
 
         ///
@@ -877,5 +932,27 @@ namespace app
             return (displacement / vVectors.size());
         }
 
+        ///
+        ///
+        ///
+        void CFeatConnectionOp::_persistEdgeDisplacement(
+            GraphType & graph,
+            std::vector<edge_descriptor> & vDeformedEdges
+        ) const
+        {
+            std::vector<edge_descriptor>::const_iterator vit;
+            for ( vit = vDeformedEdges.begin() ; vit != vDeformedEdges.end() ; ++vit ) {
+                std::string edgeId = graph.origins(*vit)[0];
+                ign::geometry::LineString edgeGeom = graph.getGeometry(*vit);
+                
+                ign::feature::Feature fEdge;
+                _fsEdge->getFeatureById(edgeId, fEdge);
+
+                fEdge.setGeometry(edgeGeom);
+
+                _fsEdge->modifyFeature(fEdge);
+            }
+
+        }
     }
 }

@@ -17,7 +17,7 @@ namespace po = boost::program_options;
 int main(int argc, char *argv[])
 {
     // ign::geometry::PrecisionModel::SetDefaultPrecisionModel(ign::geometry::PrecisionModel(ign::geometry::PrecisionModel::FIXED, 1.0e5, 1.0e7) );
-    epg::Context* context = epg::ContextS::getInstance();
+   epg::Context* context = epg::ContextS::getInstance();
 
     std::string     logDirectory = "";
     std::string     epgParametersFile = "";
@@ -87,11 +87,15 @@ int main(int argc, char *argv[])
         epg::params::tools::loadParams( *themeParameters, themeParametersFile );
 
         //lancement du traitement
-        if (cpTable != "") {
+        if (cpTable != "" && clTable != "") {
+            app::calcul::CFeatConnectionOp::computeCpCl(edgeTable, cpTable, clTable, countryCode, verbose);
+        }
+
+        else if (cpTable != "") {
             app::calcul::CFeatConnectionOp::computeCp(edgeTable, cpTable, countryCode, verbose);
         }
 
-        if (clTable != "") {
+        else if (clTable != "") {
             app::calcul::CFeatConnectionOp::computeCl(edgeTable, clTable, countryCode, verbose);
         }
         

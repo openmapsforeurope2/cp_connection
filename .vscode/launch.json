@@ -8,7 +8,7 @@
         "request": "launch",
         "program": "/usr/local/src/cp_connection/bin/ome2_cp_connectiond",
         "cwd": "/usr/local/src/cp_connection",
-        "args": ["--c", "/usr/local/src/cp_connection/data/config/epg_parameters.ini", "--e", "road_link_w", "--l", "cl_road_table_final", "--cc", "fr"],
+        "args": ["--c", "/usr/local/src/cp_connection/data/config/epg_parameters.ini", "--e", "road_link_w", "--p", "cp_road_table_final", "--l", "cl_road_table_final", "--cc", "fr"],
         "stopAtEntry": true,
         "environment": [{ "name": "config", "value": "Debug" }],
         "externalConsole": true,

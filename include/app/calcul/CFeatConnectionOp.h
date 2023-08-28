@@ -18,11 +18,11 @@ namespace calcul{
 
 	class CFeatConnectionOp {
 
+	public:
+
 		typedef ign::geometry::graph::GeometryGraph< ign::geometry::graph::PunctualVertexProperties, ign::geometry::graph::LinearEdgeProperties >  GraphType;
 		typedef typename GraphType::edge_descriptor edge_descriptor;
 		typedef typename GraphType::vertex_descriptor vertex_descriptor;
-
-	public:
 
 		/// \brief
 		static void computeCp(
@@ -35,6 +35,15 @@ namespace calcul{
 		/// \brief
 		static void computeCl(
 			std::string edgeTable, 
+            std::string clTable,
+			std::string countryCode, 
+			bool verbose
+		);
+
+		/// \brief
+		static void computeCpCl(
+			std::string edgeTable,
+			std::string cpTable,
             std::string clTable,
 			std::string countryCode, 
 			bool verbose
@@ -80,19 +89,19 @@ namespace calcul{
         );
 
 		//--
+		void _computeCpDisplacements(std::map<ign::geometry::Point, ign::math::Vec2d> & mDisplacements) const;
+
+		//--
+		void _computeClDisplacements(std::map<ign::geometry::Point, ign::math::Vec2d> & mDisplacements) const;
+
+		//--
 		void _computeCp();
 
 		//--
 		void _computeCl();
 
 		//--
-		void _applyDisplacement(
-			GraphType & graph, 
-			std::map< ign::geometry::Point, ign::math::Vec2d > const& mDisplacements,
-			epg::calcul::matching::detail::LineStringDeformer const& lineStringDeformer,
-			std::set< std::string >& sCollapsedEdges,
-			double influenceDist
-		) const;
+		void _computeCpCl();
 
 		//--
 		std::pair<bool, std::string> _getCountryEdgeLink(
@@ -110,10 +119,37 @@ namespace calcul{
 		) const;
 
 		//--
+		void _loadEdgeGraph(GraphType & graph) const;
+
+		//--
 		std::pair<bool, vertex_descriptor> _getNearestVertex(
             GraphType const& graph, 
             ign::geometry::Point const& pt, 
             double searchDistance
+        ) const;
+
+		//--
+		void _applyEdgeDisplacement(
+            GraphType & graph,
+            std::map<ign::geometry::Point, ign::math::Vec2d> const & mReferences,
+			std::vector<edge_descriptor> & vDeformedEdges,
+            std::set<std::string> & sCollapsedEdges
+        ) const;
+
+		//--
+		void _applyDisplacement(
+			GraphType & graph, 
+			std::map< ign::geometry::Point, ign::math::Vec2d > const & mDisplacements,
+			epg::calcul::matching::detail::LineStringDeformer const & lineStringDeformer,
+			std::vector<edge_descriptor> & vDeformedEdges,
+			std::set<std::string> & sCollapsedEdges,
+			double influenceDist
+		) const;
+
+        //--
+        void _persistEdgeDisplacement(
+            GraphType & graph,
+            std::vector<edge_descriptor> & vDeformedEdges
         ) const;
 
 		//--
